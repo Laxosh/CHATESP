@@ -3,292 +3,252 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 Private Chat Hub</title>
+    <title>Hybrid Mesh Terminal</title>
     <style>
-        :root {
-            --bg-color: #121214;
-            --panel-bg: #1a1a1e;
-            --accent-color: #0078d4;
-            --text-main: #ffffff;
-            --text-muted: #aaaaaa;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-        }
-        header {
-            background-color: var(--panel-bg);
-            padding: 15px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid #2d2d34;
-        }
-        .connection-status {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        button {
-            background-color: var(--accent-color);
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: 600;
-        }
-        button:hover { background-color: #0063b1; }
-        .main-container {
-            display: flex;
-            flex: 1;
-            overflow: hidden;
-        }
-        .sidebar {
-            width: 250px;
-            background-color: var(--panel-bg);
-            border-right: 1px solid #2d2d34;
-            display: flex;
-            flex-direction: column;
-            padding: 15px;
-        }
-        .user-list {
-            list-style: none;
-            padding: 0;
-            margin: 10px 0;
-            overflow-y: auto;
-            flex: 1;
-        }
-        .user-item {
-            padding: 10px;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-bottom: 5px;
-            border: 1px solid transparent;
-        }
-        .user-item:hover { background-color: #2d2d34; }
-        .user-item.selected {
-            background-color: rgba(0, 120, 212, 0.2);
-            border-color: var(--accent-color);
-        }
-        .chat-area {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background-color: #141416;
-        }
-        .messages-container {
-            flex: 1;
-            padding: 20px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        .msg {
-            max-width: 70%;
-            padding: 10px 14px;
-            border-radius: 8px;
-            line-height: 1.4;
-        }
-        .msg.system { background-color: #2d2d34; color: var(--text-muted); align-self: center; font-size: 0.9rem; }
-        .msg.incoming { background-color: #26262b; align-self: flex-start; }
-        .msg.outgoing { background-color: var(--accent-color); align-self: flex-end; }
-        .input-bar {
-            padding: 20px;
-            background-color: var(--panel-bg);
-            display: flex;
-            gap: 10px;
-            border-top: 1px solid #2d2d34;
-        }
-        input[type="text"] {
-            flex: 1;
-            background-color: #26262b;
-            border: 1px solid #2d2d34;
-            color: white;
-            padding: 12px;
-            border-radius: 4px;
-            outline: none;
-        }
+        :root { --bg: #0d0e15; --panel: #161722; --accent: #00f2fe; --text: #e2e8f0; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; display: flex; flex-direction: column; height: 100vh; }
+        header { background: var(--panel); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #242636; }
+        .mode-container { display: flex; gap: 10px; align-items: center; }
+        .toggle-btn { padding: 10px 16px; font-weight: bold; cursor: pointer; border-radius: 6px; border: 1px solid #32354b; background: #1c1d2a; color: white;}
+        .toggle-btn.active { background: var(--accent); color: black; border-color: var(--accent); }
+        .status-dot { width: 12px; height: 12px; border-radius: 50%; background: #ef4444; display: inline-block; }
+        .status-dot.online { background: #10b981; }
+        .main-container { display: flex; flex: 1; overflow: hidden; }
+        .sidebar { width: 280px; background: #11121a; border-right: 1px solid #242636; display: flex; flex-direction: column; padding: 15px; }
+        .user-list { list-style: none; padding: 0; margin: 10px 0; overflow-y: auto; flex: 1; }
+        .user-item { padding: 12px; border-radius: 6px; cursor: pointer; margin-bottom: 6px; background: #181924; border-left: 4px solid transparent; }
+        .user-item.selected { background: #222433; border-left-color: var(--accent); }
+        .chat-area { flex: 1; display: flex; flex-direction: column; background: #08090d; }
+        .messages-container { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .msg { max-width: 65%; padding: 10px 14px; border-radius: 10px; line-height: 1.4; word-break: break-all; }
+        .msg.global { background: #2e1f4d; color: #fff; align-self: flex-start; border-left: 4px solid #a855f7; }
+        .msg.incoming { background: var(--panel); align-self: flex-start; border-left: 4px solid var(--accent); }
+        .msg.outgoing { background: #0284c7; align-self: flex-end; }
+        .msg.system { background: #1e1f29; color: #94a3b8; align-self: center; font-size: 0.85rem; border-radius: 20px; }
+        .input-bar { padding: 15px 20px; background: var(--panel); display: flex; gap: 10px; border-top: 1px solid #242636; }
+        .input-bar input { flex: 1; padding: 12px; background: #0d0e15; border: 1px solid #242636; color: white; border-radius: 6px; outline: none; }
+        .input-bar button { padding: 12px 24px; background: var(--accent); color: black; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; }
     </style>
 </head>
 <body>
 
     <header>
-        <h2>🔒 ESP32 Secure Mesh Terminal</h2>
-        <div class="connection-status">
-            <input type="text" id="usernameInput" placeholder="Enter Username..." style="max-width: 150px; padding: 6px;">
-            <button id="connectBtn" onclick="initSerialConnection()">🔌 Connect to ESP32</button>
+        <div>
+            <h2 style="margin:0; font-size:1.3rem;">📡 Mesh Node ID: <span id="myIdLabel" style="color:var(--accent);">Assigning...</span></h2>
+            <div id="connStatusText" style="font-size:0.85rem; color:#94a3b8; margin-top:4px;">Target: ws://192.168.4.1:81</div>
+        </div>
+        <div class="mode-container">
+            <button id="wifiModeBtn" class="toggle-btn active" onclick="switchHardwareMode('WIFI')">Wi-Fi Router Mode</button>
+            <button id="bleModeBtn" class="toggle-btn" onclick="switchHardwareMode('BLE')">Direct Bluetooth Mode</button>
+            <div id="netDot" class="status-dot"></div>
         </div>
     </header>
 
     <div class="main-container">
         <div class="sidebar">
-            <h3>Active Channels</h3>
-            <div id="targetLabel" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 10px;">Target: Broadcasting All</div>
-            <ul class="user-list" id="activeUsers">
-                <li class="user-item selected" onclick="selectChatTarget('GLOBAL_BROADCAST', this)">🌐 Global Room</li>
+            <h3 style="margin:0 0 10px 0; font-size:1rem; color:#94a3b8;">Public Channels</h3>
+            <ul class="user-list">
+                <li id="globalRoomBtn" class="user-item selected" onclick="switchActiveChat('GLOBAL_PUBLIC')">🌐 Global Public Square</li>
             </ul>
+            <h3 style="margin:15px 0 10px 0; font-size:1rem; color:#94a3b8;">Private Peers</h3>
+            <ul class="user-list" id="peerList"></ul>
         </div>
 
         <div class="chat-area">
-            <div class="messages-container" id="chatBox">
-                <div class="msg system">System offline. Please connect via USB serial port link.</div>
-            </div>
+            <div class="messages-container" id="chatWindow"></div>
             <div class="input-bar">
-                <input type="text" id="messageInput" placeholder="Type a message..." onkeypress="handleKeyPress(event)" disabled>
-                <button id="sendBtn" onclick="sendMessage()" disabled>Send</button>
+                <input type="text" id="messageIn" placeholder="Type data packet text..." onkeypress="if(event.key==='Enter') dispatchMessage()">
+                <button onclick="dispatchMessage()">Send Data</button>
             </div>
         </div>
     </div>
 
     <script>
-        let port;
-        let writer;
-        let reader;
-        let myUsername = "";
-        let selectedTarget = "GLOBAL_BROADCAST";
-        let partialDataBuffer = "";
+        let currentMode = "WIFI"; 
+        let activeChat = "GLOBAL_PUBLIC";
+        let myUsername = "Peer-" + Math.floor(1000 + Math.random() * 9000);
+        
+        let wsSocket = null;
+        let bleDevice = null;
+        let bleRxChar = null;
+        let bleTxChar = null;
 
-        async function initSerialConnection() {
-            const userIn = document.getElementById("usernameInput").value.trim();
-            if(!userIn) { alert("Please enter a handle identity first."); return; }
-            myUsername = userIn;
+        const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+        const BLE_RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+        const BLE_TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 
+        document.getElementById("myIdLabel").innerText = myUsername;
+
+        if(!localStorage.getItem("mesh_history")) {
+            localStorage.setItem("mesh_history", JSON.stringify({"GLOBAL_PUBLIC": []}));
+        }
+
+        function getHistory() { return JSON.parse(localStorage.getItem("mesh_history")); }
+        function saveHistory(data) { localStorage.setItem("mesh_history", JSON.stringify(data)); }
+
+        function initializeNetworkLink() {
+            disconnectAllDrivers();
+            if (currentMode === "WIFI") { connectViaWebSocket(); } 
+            else { connectViaWebBluetooth(); }
+        }
+
+        function disconnectAllDrivers() {
+            if(wsSocket) { wsSocket.close(); wsSocket = null; }
+            if(bleDevice && bleDevice.gatt.connected) { bleDevice.gatt.disconnect(); }
+            setOnlineState(false, "Offline");
+        }
+
+        function switchHardwareMode(mode) {
+            currentMode = mode;
+            document.getElementById("wifiModeBtn").className = (mode === "WIFI") ? "toggle-btn active" : "toggle-btn";
+            document.getElementById("bleModeBtn").className = (mode === "BLE") ? "toggle-btn active" : "toggle-btn";
+            initializeNetworkLink();
+        }
+
+        function connectViaWebSocket() {
+            setOnlineState(false, "Polling Static IP Handshake...");
+            wsSocket = new WebSocket("ws://192.168.4.1:81");
+
+            wsSocket.onopen = () => {
+                setOnlineState(true, "Connected to Hub via Wi-Fi");
+                transmitHardwarePacket({ type: "register", sender: myUsername });
+            };
+            wsSocket.onmessage = (e) => processIncomingPacket(e.data);
+            wsSocket.onclose = () => setOnlineState(false, "Link severed. Auto-retrying...");
+        }
+
+        async function connectViaWebBluetooth() {
+            setOnlineState(false, "Awaiting pairing approval popup...");
             try {
-                // Request Hardware COM Port from user permissions
-                port = await navigator.serial.requestPort();
-                await port.open({ baudRate: 115200 });
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: "ESP32_Mesh_Node" }],
+                    optionalServices: [BLE_SERVICE_UUID]
+                });
                 
-                writer = port.writable.getWriter();
-                document.getElementById("connectBtn").innerText = "🟩 Linked";
-                document.getElementById("messageInput").disabled = false;
-                document.getElementById("sendBtn").disabled = false;
-                
-                appendSystemMsg("USB Serial pipeline attached. Syncing profile wrapper...");
+                const server = await bleDevice.gatt.connect();
+                const service = await server.getPrimaryService(BLE_SERVICE_UUID);
+                bleRxChar = await service.getCharacteristic(BLE_RX_UUID);
+                bleTxChar = await service.getCharacteristic(BLE_TX_UUID);
 
-                // Transmit registration wrapper to hardware router
-                const regPayload = { type: "register", sender: myUsername };
-                await sendToHardware(regPayload);
+                await bleTxChar.startNotifications();
+                bleTxChar.addEventListener('characteristicvaluechanged', (e) => {
+                    let decoder = new TextDecoder();
+                    processIncomingPacket(decoder.decode(e.target.value));
+                });
 
-                // Initialize background intake listening thread
-                readSerialStream();
+                setOnlineState(true, "Connected via Dedicated Bluetooth Link");
+                transmitHardwarePacket({ type: "register", sender: myUsername });
             } catch (err) {
-                appendSystemMsg("Connection failure: " + err);
+                setOnlineState(false, "Bluetooth Refused: " + err.message);
             }
         }
 
-        async function sendToHardware(jsonObject) {
-            if (!writer) return;
-            const payloadStr = JSON.stringify(jsonObject) + "\n"; // Explicit delimiter for standard text read loops
-            const encoder = new TextEncoder();
-            await writer.write(encoder.encode(payloadStr));
-        }
-
-        async function readSerialStream() {
-            const decoder = new TextDecoder();
-            while (port.readable) {
-                reader = port.readable.getReader();
-                try {
-                    while (true) {
-                        const { value, done } = await reader.read();
-                        if (done) break;
-                        
-                        partialDataBuffer += decoder.decode(value, { stream: true });
-                        let boundaryIndex;
-                        
-                        // Parse complete lines split by the newline token matching micro-controller loop filters
-                        while ((boundaryIndex = partialDataBuffer.indexOf('\n')) >= 0) {
-                            const absoluteLine = partialDataBuffer.substring(0, boundaryIndex).trim();
-                            partialDataBuffer = partialDataBuffer.substring(boundaryIndex + 1);
-                            if (absoluteLine.length > 0) {
-                                processIncomingData(absoluteLine);
-                            }
-                        }
-                    }
-                } catch (err) {
-                    console.error("Stream reader encountered structural error:", err);
-                } finally {
-                    reader.releaseLock();
-                }
+        function transmitHardwarePacket(jsonObj) {
+            const dataStr = JSON.stringify(jsonObj);
+            if (currentMode === "WIFI" && wsSocket && wsSocket.readyState === WebSocket.OPEN) {
+                wsSocket.send(dataStr);
+            } else if (currentMode === "BLE" && bleRxChar) {
+                let encoder = new TextEncoder();
+                bleRxChar.writeValue(encoder.encode(dataStr));
             }
         }
 
-        function processIncomingData(rawString) {
+        function processIncomingPacket(rawStr) {
             try {
-                const packet = JSON.parse(rawString);
-                
+                const packet = JSON.parse(rawStr);
                 if (packet.type === "system_userlist") {
-                    updateRosterUI(packet.data || []);
+                    updateRosterUI(packet.data);
+                } 
+                else if (packet.type === "public_msg") {
+                    logMessageStore("GLOBAL_PUBLIC", packet.sender, packet.text, packet.sender === myUsername ? "outgoing" : "global");
                 } 
                 else if (packet.type === "private_chat") {
-                    appendMessage(packet.sender, packet.text, "incoming");
+                    if(packet.target === myUsername || packet.sender === myUsername) {
+                        let roomKey = (packet.sender === myUsername) ? packet.target : packet.sender;
+                        logMessageStore(roomKey, packet.sender, packet.text, packet.sender === myUsername ? "outgoing" : "incoming");
+                    }
                 }
-            } catch(e) {
-                // Skips raw system serial logs printed out by hardware startup boot logs
-                console.log("Filtered non-JSON payload noise:", rawString);
-            }
+            } catch(err) { console.warn("Packet read error:", err); }
         }
 
-        function updateRosterUI(userArray) {
-            const listContainer = document.getElementById("activeUsers");
-            listContainer.innerHTML = `<li class="user-item ${selectedTarget === 'GLOBAL_BROADCAST' ? 'selected' : ''}" onclick="selectChatTarget('GLOBAL_BROADCAST', this)">🌐 Global Room</li>`;
+        function logMessageStore(roomKey, sender, text, cssClass) {
+            let db = getHistory();
+            if(!db[roomKey]) db[roomKey] = [];
             
-            userArray.forEach(username => {
-                if(username === myUsername) return; // Hide self from targeting map
-                const isSelected = selectedTarget === username ? 'selected' : '';
-                listContainer.innerHTML += `<li class="user-item ${isSelected}" onclick="selectChatTarget('${username}', this)">👤 ${username}</li>`;
+            db[roomKey].push({ sender: sender, text: text, style: cssClass });
+            saveHistory(db);
+
+            if(activeChat === roomKey) renderActiveConversation();
+        }
+
+        function updateRosterUI(users) {
+            const container = document.getElementById("peerList");
+            // Keep the previous UI list intact if some nodes are currently writing offline queue histories
+            let currentSelected = activeChat;
+            container.innerHTML = "";
+            users.forEach(user => {
+                if(user === myUsername) return;
+                const isSelected = (currentSelected === user) ? "selected" : "";
+                container.innerHTML += `<li class="user-item ${isSelected}" onclick="switchActiveChat('${user}')">👤 ${user}</li>`;
             });
         }
 
-        function selectChatTarget(target, element) {
-            selectedTarget = target;
-            document.querySelectorAll('.user-item').forEach(el => el.classList.remove('selected'));
-            element.classList.add('selected');
-            document.getElementById("targetLabel").innerText = `Target: ${target === 'GLOBAL_BROADCAST' ? 'Broadcasting All' : 'Encrypted Direct to ' + target}`;
+        function switchActiveChat(target) {
+            activeChat = target;
+            document.getElementById("globalRoomBtn").className = (target === "GLOBAL_PUBLIC") ? "user-item selected" : "user-item";
+            
+            const items = document.querySelectorAll("#peerList .user-item");
+            items.forEach(el => {
+                if(el.innerText.includes(target)) el.classList.add("selected");
+                else el.classList.remove("selected");
+            });
+
+            renderActiveConversation();
         }
 
-        async function sendMessage() {
-            const msgInput = document.getElementById("messageInput");
-            const txt = msgInput.value.trim();
+        function renderActiveConversation() {
+            const win = document.getElementById("chatWindow");
+            win.innerHTML = "";
+            let db = getHistory();
+            let activeLogs = db[activeChat] || [];
+
+            activeLogs.forEach(m => {
+                win.innerHTML += `<div class="msg ${m.style}"><strong>${m.sender}:</strong> ${m.text}</div>`;
+            });
+            win.scrollTop = win.scrollHeight;
+        }
+
+        function dispatchMessage() {
+            const field = document.getElementById("messageIn");
+            const txt = field.value.trim();
             if(!txt) return;
 
-            if(selectedTarget === "GLOBAL_BROADCAST") {
-                appendSystemMsg("Direct network configuration active. Please select a specific user profile node to trace messaging paths.");
-                msgInput.value = "";
-                return;
+            let payload = {};
+            if(activeChat === "GLOBAL_PUBLIC") {
+                payload = { type: "public_msg", sender: myUsername, text: txt };
+            } else {
+                payload = { type: "private_chat", sender: myUsername, target: activeChat, text: txt };
+                logMessageStore(activeChat, myUsername, txt, "outgoing");
             }
 
-            const chatPayload = {
-                type: "private_msg",
-                sender: myUsername,
-                target: selectedTarget,
-                text: txt
-            };
-
-            await sendToHardware(chatPayload);
-            appendMessage(`To [${selectedTarget}]`, txt, "outgoing");
-            msgInput.value = "";
+            transmitHardwarePacket(payload);
+            field.value = "";
         }
 
-        function appendMessage(sender, text, type) {
-            const box = document.getElementById("chatBox");
-            box.innerHTML += `<div class="msg ${type}"><strong>${sender}:</strong> ${text}</div>`;
-            box.scrollTop = box.scrollHeight;
+        function setOnlineState(isOnline, description) {
+            document.getElementById("netDot").className = isOnline ? "status-dot online" : "status-dot";
+            document.getElementById("connStatusText").innerText = description;
         }
 
-        function appendSystemMsg(text) {
-            const box = document.getElementById("chatBox");
-            box.innerHTML += `<div class="msg system">${text}</div>`;
-            box.scrollTop = box.scrollHeight;
-        }
-
-        function handleKeyPress(e) { if(e.key === 'Enter') sendMessage(); }
+        window.onload = () => {
+            initializeNetworkLink();
+            renderActiveConversation();
+            setInterval(() => {
+                if (currentMode === "WIFI" && (!wsSocket || wsSocket.readyState === WebSocket.CLOSED)) {
+                    connectViaWebSocket();
+                }
+            }, 3000); // Fast heartbeat recovery checks
+        };
     </script>
 </body>
 </html>
