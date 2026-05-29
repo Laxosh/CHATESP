@@ -1,0 +1,268 @@
+#include <WiFi.h>
+#include <WebSocketsServer.h>
+#include <ArduinoJson.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLE2902.h>
+
+const char* ssid = "ESP32_Private_Hub";
+const char* password = "password123";
+
+IPAddress local_IP(192, 168, 4, 1);
+IPAddress gateway(192, 168, 4, 1);
+IPAddress subnet(255, 255, 255, 0);
+
+WebSocketsServer webSocket = WebSocketsServer(81);
+
+// BLE Server References
+BLEServer* pServer = NULL;
+BLECharacteristic* pTxCharacteristic = NULL;
+
+#define SERVICE_UUID           "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+#define RX_UUID                "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+#define TX_UUID                "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+
+struct UserNode {
+  uint8_t numId; // WebSocket connection index or BLE client index
+  String username;
+  bool isRegistered;
+  bool isBLE;
+  uint16_t bleConnId; // Tracks individual multiple BLE connections
+};
+
+UserNode meshRegistry[20];
+int totalActiveUsers = 0;
+
+// Offline Message Queue Structure (Holds up to 30 messages safely)
+struct QueuedMessage {
+  String target;
+  String payload;
+  bool active;
+};
+QueuedMessage offlineQueue[30];
+
+void broadcastNetworkRoster() {
+  JsonDocument doc;
+  doc["type"] = "system_userlist";
+  JsonArray userList = doc["data"].to<JsonArray>();
+
+  for (int i = 0; i < totalActiveUsers; i++) {
+    if (meshRegistry[i].isRegistered) {
+      userList.add(meshRegistry[i].username);
+    }
+  }
+
+  String output;
+  serializeJson(doc, output);
+
+  for (int i = 0; i < totalActiveUsers; i++) {
+    if (!meshRegistry[i].isBLE) {
+      webSocket.sendTXT(meshRegistry[i].numId, output);
+    } else {
+      pTxCharacteristic->setValue(output.c_str());
+      pTxCharacteristic->notify(meshRegistry[i].bleConnId);
+    }
+  }
+}
+
+// Scans the offline queue and delivers pending messages for newly connected peers
+void checkAndDeliverOfflineMessages(String connectedUser) {
+  for (int i = 0; i < 30; i++) {
+    if (offlineQueue[i].active && offlineQueue[i].target == connectedUser) {
+      // Find where they are connected right now
+      for (int j = 0; j < totalActiveUsers; j++) {
+        if (meshRegistry[j].username == connectedUser && meshRegistry[j].isRegistered) {
+          if (!meshRegistry[j].isBLE) {
+            webSocket.sendTXT(meshRegistry[j].numId, offlineQueue[i].payload);
+          } else {
+            pTxCharacteristic->setValue(offlineQueue[i].payload.c_str());
+            pTxCharacteristic->notify(meshRegistry[j].bleConnId);
+          }
+          break;
+        }
+      }
+      // Wipe the message from memory completely right after delivery
+      offlineQueue[i].active = false;
+      offlineQueue[i].target = "";
+      offlineQueue[i].payload = "";
+    }
+  }
+}
+
+void queueOfflineMessage(String targetName, String jsonPayload) {
+  for (int i = 0; i < 30; i++) {
+    if (!offlineQueue[i].active) {
+      offlineQueue[i].target = targetName;
+      offlineQueue[i].payload = jsonPayload;
+      offlineQueue[i].active = true;
+      Serial.printf("[QUEUE] Target '%s' is offline. Packet stored in temporary buffer slot %d\n", targetName.c_str(), i);
+      return;
+    }
+  }
+}
+
+void handleNetworkTraffic(uint8_t clientChan, String payload, bool isBLE, uint16_t connId = 0) {
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, payload);
+  if (err) return;
+
+  String packetType = doc["type"];
+
+  if (packetType == "register") {
+    String selectedName = doc["sender"].as<String>();
+    bool found = false;
+    
+    for (int i = 0; i < totalActiveUsers; i++) {
+      if ((isBLE && meshRegistry[i].isBLE && meshRegistry[i].bleConnId == connId) || 
+          (!isBLE && !meshRegistry[i].isBLE && meshRegistry[i].numId == clientChan)) {
+        meshRegistry[i].username = selectedName;
+        meshRegistry[i].isRegistered = true;
+        found = true;
+        break;
+      }
+    }
+    if (!found && totalActiveUsers < 20) {
+      meshRegistry[totalActiveUsers] = { clientChan, selectedName, true, isBLE, connId };
+      totalActiveUsers++;
+    }
+    broadcastNetworkRoster();
+    checkAndDeliverOfflineMessages(selectedName); // Deliver any missed chats!
+  }
+  else if (packetType == "public_msg") {
+    String output;
+    serializeJson(doc, output);
+
+    for (int i = 0; i < totalActiveUsers; i++) {
+      if (!meshRegistry[i].isBLE) {
+        webSocket.sendTXT(meshRegistry[i].numId, output);
+      } else {
+        pTxCharacteristic->setValue(output.c_str());
+        pTxCharacteristic->notify(meshRegistry[i].bleConnId);
+      }
+    }
+  }
+  else if (packetType == "private_chat") {
+    String targetRecipient = doc["target"];
+    bool recipientOnline = false;
+    String output;
+    serializeJson(doc, output);
+
+    for (int i = 0; i < totalActiveUsers; i++) {
+      if (meshRegistry[i].username == targetRecipient && meshRegistry[i].isRegistered) {
+        recipientOnline = true;
+        if (!meshRegistry[i].isBLE) {
+          webSocket.sendTXT(meshRegistry[i].numId, output);
+        } else {
+          pTxCharacteristic->setValue(output.c_str());
+          pTxCharacteristic->notify(meshRegistry[i].bleConnId);
+        }
+        break;
+      }
+    }
+
+    // If the peer isn't on the network right now, store it safely
+    if (!recipientOnline) {
+      queueOfflineMessage(targetRecipient, output);
+    }
+  }
+}
+
+// WebSocket Event System (Wi-Fi)
+void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+  if (type == WStype_CONNECTED) {
+    if (totalActiveUsers < 20) {
+      meshRegistry[totalActiveUsers] = { num, "", false, false, 0 };
+      totalActiveUsers++;
+    }
+  } 
+  else if (type == WStype_DISCONNECTED) {
+    for (int i = 0; i < totalActiveUsers; i++) {
+      if (!meshRegistry[i].isBLE && meshRegistry[i].numId == num) {
+        for (int j = i; j < totalActiveUsers - 1; j++) meshRegistry[j] = meshRegistry[j + 1];
+        totalActiveUsers--;
+        break;
+      }
+    }
+    broadcastNetworkRoster();
+  } 
+  else if (type == WStype_TEXT) {
+    handleNetworkTraffic(num, (char*)payload, false);
+  }
+}
+
+// BLE Core Multi-Connection Event Callbacks
+class MultiBLEServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) {
+        // Grab the internal connection token ID allocated by the hardware
+        uint16_t connId = param->connect.conn_id; 
+        if (totalActiveUsers < 20) {
+            meshRegistry[totalActiveUsers] = { 255, "", false, true, connId };
+            totalActiveUsers++;
+        }
+        // CRITICAL: Relaunch advertising immediately so another phone can connect!
+        BLEDevice::startAdvertising();
+    };
+
+    void onDisconnect(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) {
+        uint16_t connId = param->disconnect.conn_id;
+        for (int i = 0; i < totalActiveUsers; i++) {
+          if (meshRegistry[i].isBLE && meshRegistry[i].bleConnId == connId) {
+            for (int j = i; j < totalActiveUsers - 1; j++) meshRegistry[j] = meshRegistry[j + 1];
+            totalActiveUsers--;
+            break;
+          }
+        }
+        broadcastNetworkRoster();
+        BLEDevice::startAdvertising(); // Keep advertising channels open
+    }
+};
+
+class MultiBLERxCallbacks: public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic, esp_ble_gatts_cb_param_t* param) {
+        String rxValue = pCharacteristic->getValue().c_str();
+        uint16_t connId = param->write.conn_id;
+        if (rxValue.length() > 0) {
+            handleNetworkTraffic(255, rxValue, true, connId);
+        }
+    }
+};
+
+void setup() {
+  Serial.begin(115200);
+
+  // Initialize Wi-Fi
+  WiFi.mode(WIFI_AP);
+  WiFi.softAPConfig(local_IP, gateway, subnet);
+  WiFi.softAP(ssid, password);
+  
+  // FIX: Force Wi-Fi radio sleep modes off entirely to prevent browser drops
+  WiFi.setSleep(false);
+
+  webSocket.begin();
+  webSocket.onEvent(onWebSocketEvent);
+
+  // Initialize Multi-Client BLE Hardware Configuration
+  BLEDevice::init("ESP32_Mesh_Node");
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MultiBLEServerCallbacks());
+  
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+  pTxCharacteristic = pService->createCharacteristic(TX_UUID, BLECharacteristic::PROPERTY_NOTIFY);
+  pTxCharacteristic->addDescriptor(new BLE2902());
+  
+  BLECharacteristic *pRxCharacteristic = pService->createCharacteristic(RX_UUID, BLECharacteristic::PROPERTY_WRITE);
+  pRxCharacteristic->setCallbacks(new MultiBLERxCallbacks());
+  
+  pService->start();
+  BLEDevice::getAdvertising()->addServiceUUID(SERVICE_UUID);
+  BLEDevice::getAdvertising()->start();
+
+  // Clear offline memory parameters on fresh boots
+  for(int i=0; i<30; i++) offlineQueue[i].active = false;
+
+  Serial.println("[ONLINE] High-Power Multi-User Hub Active.");
+}
+
+void loop() {
+  webSocket.loop();
+}
