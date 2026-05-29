@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mesh Chat Hub</title>
+    <style>
+        :root { 
+            --bg: #0b141a; --panel: #111b21; --accent: #00a884; --text: #e9edef; 
+            --incoming: #202c33; --outgoing: #005c4b; --subtext: #8696a0; --selected: rgba(0, 168, 132, 0.25);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        html, body { 
+            background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif;
+            height: 100dvh; width: 100vw; display: flex; flex-direction: column; overflow: hidden;
+            position: relative;
+        }
+        
+        /* FIX: Absolutely locked and fixed top header dimensions */
+        header { 
+            background: var(--panel); padding: 10px 16px; display: flex; 
+            justify-content: space-between; align-items: center; border-bottom: 1px solid #222d34; 
+            flex-shrink: 0; width: 100%; height: 60px; z-index: 100; position: relative;
+        }
+        .header-info h2 { font-size: 1rem; color: var(--text); white-space: nowrap; }
+        .header-info p { font-size: 0.7rem; color: var(--subtext); }
+        
+        .mode-container { display: flex; gap: 6px; align-items: center; }
+        .toggle-btn { padding: 6px 10px; font-weight: bold; cursor: pointer; border-radius: 20px; border: 1px solid #2a3942; background: #202c33; color: #aebac1; font-size: 0.75rem; transition: all 0.2s; white-space: nowrap; }
+        .toggle-btn.active { background: var(--accent); color: #0b141a; border-color: var(--accent); }
+        .action-btn { background: #ea0038; color: white; border: none; padding: 3px 6px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.65rem; margin-top: 1px; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #ef4444; display: inline-block; }
+        .status-dot.online { background: #10b981; }
+
+        /* Multi-Select Action Overlay Bar */
+        .batch-action-bar {
+            position: absolute; top: 0; left: 0; width: 100%; height: 60px; background: #005c4b;
+            display: none; align-items: center; justify-content: space-between; padding: 0 16px; z-index: 110;
+        }
+        .batch-btn-group { display: flex; gap: 10px; }
+        .batch-btn { background: #202c33; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; cursor: pointer; }
+
+        .main-container { 
+            display: flex; flex: 1; width: 100%; height: calc(100dvh - 60px); position: relative; overflow: hidden; 
+        }
+
+        /* Left Panel - Chat List View */
+        .chat-list-view { 
+            width: 35%; min-width: 300px; background: #111b21; border-right: 1px solid #222d34; 
+            display: flex; flex-direction: column; height: 100%; flex-shrink: 0;
+            transition: transform 0.25s ease-out; z-index: 5;
+        }
+        .section-header-row { display: flex; justify-content: space-between; align-items: center; background: #0c1317; padding-right: 10px; }
+        .section-title { padding: 10px 16px; font-size: 0.8rem; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .global-del-btn { background: transparent; border: none; color: #8696a0; cursor: pointer; font-size: 0.85rem; padding: 2px 6px; }
+        .global-del-btn:hover { color: #ef4444; }
+        .user-list { list-style: none; overflow-y: auto; flex: 1; -webkit-overflow-scrolling: touch; }
+        
+        /* Chat Cards */
+        .user-item { 
+            padding: 12px 16px; cursor: pointer; display: flex; justify-content: space-between; 
+            align-items: center; border-bottom: 1px solid #222d34; background: #111b21; transition: background 0.2s;
+        }
+        .user-item:hover { background: #202c33; }
+        .user-item.selected { background: #2a3942; }
+        .user-item.unread-flash { animation: flashGreen 0.4s ease-in-out 2; }
+        
+        .chat-meta { display: flex; flex-direction: column; gap: 3px; flex: 1; margin-left: 10px; overflow: hidden; }
+        .chat-name { font-weight: 500; font-size: 0.95rem; color: var(--text); }
+        .chat-preview { font-size: 0.78rem; color: var(--subtext); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        
+        .chat-badge-area { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 45px; flex-shrink: 0; }
+        .unread-badge { background: var(--accent); color: #0b141a; font-weight: bold; font-size: 0.7rem; min-width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; padding: 2px; }
+        .del-chat-icon { color: #8696a0; font-weight: bold; padding: 4px; font-size: 0.85rem; transition: color 0.2s; }
+        .del-chat-icon:hover { color: #ef4444; }
+
+        /* Right Panel - Chat Window View */
+        .chat-window-view { 
+            width: 65%; background: #0b141a; display: flex; flex-direction: column; height: 100%;
+            position: relative; transition: transform 0.25s ease-out; z-index: 4;
+        }
+        .window-header { background: var(--panel); padding: 10px 16px; display: flex; align-items: center; border-bottom: 1px solid #222d34; flex-shrink: 0; height: 50px; }
+        .back-btn { background: none; border: none; color: var(--accent); font-size: 1rem; font-weight: bold; margin-right: 12px; cursor: pointer; display: none; align-items: center; }
+        .window-header-title { font-weight: 500; font-size: 0.95rem; }
+
+        /* Messages Window */
+        .messages-container { 
+            flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; 
+            gap: 8px; background-image: radial-gradient(rgba(32, 44, 51, 0.3) 1px, transparent 0); background-size: 15px 15px;
+            -webkit-overflow-scrolling: touch;
+        }
+        .msg { 
+            max-width: 75%; padding: 8px 12px 18px 12px; border-radius: 8px; font-size: 0.92rem; 
+            line-height: 1.4; word-break: break-word; position: relative; cursor: pointer; user-select: none;
+            -webkit-user-select: none; transition: background 0.2s;
+        }
+        .msg.global { background: #23163a; align-self: flex-start; border-left: 4px solid #a855f7; }
+        .msg.incoming { background: var(--incoming); align-self: flex-start; }
+        .msg.outgoing { background: var(--outgoing); align-self: flex-end; }
+        .msg.batch-selected { background: var(--selected) !important; outline: 2px solid var(--accent); }
+        .msg-time { position: absolute; bottom: 3px; right: 8px; font-size: 0.65rem; color: var(--subtext); }
+
+        /* Typing Input Bar Fixed Positions */
+        .input-bar { 
+            padding: 10px 14px; background: var(--panel); display: flex; gap: 10px; 
+            align-items: center; flex-shrink: 0; width: 100%; min-height: 55px; border-top: 1px solid #222d34;
+        }
+        .input-bar input { flex: 1; padding: 10px 14px; background: #2a3942; border: none; color: white; border-radius: 8px; outline: none; font-size: 0.95rem; min-width: 0; }
+        .input-bar button { padding: 10px 18px; background: var(--accent); color: #0b141a; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; flex-shrink: 0; }
+
+        /* Custom Modal Popup Options Layout */
+        .custom-modal {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7);
+            display: none; align-items: center; justify-content: center; z-index: 500; padding: 20px;
+        }
+        .modal-card { background: var(--panel); border: 1px solid #2a3942; padding: 20px; border-radius: 10px; max-width: 400px; width: 100%; text-align: center; }
+        .modal-title { font-size: 1.1rem; font-weight: bold; margin-bottom: 12px; }
+        .modal-desc { font-size: 0.88rem; color: var(--subtext); margin-bottom: 20px; line-height: 1.4; }
+        .modal-btn { display: block; width: 100%; padding: 10px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin-bottom: 8px; font-size: 0.9rem; }
+        .modal-btn.primary { background: #ef4444; color: white; }
+        .modal-btn.secondary { background: #202c33; color: white; border: 1px solid #3a4d59; }
+        .modal-btn.cancel { background: transparent; color: var(--subtext); }
+
+        @keyframes flashGreen {
+            0% { background-color: #111b21; }
+            50% { background-color: #005c4b; }
+            100% { background-color: #111b21; }
+        }
+
+        @media (max-width: 768px) {
+            .back-btn { display: flex; }
+            .chat-list-view { width: 100%; position: absolute; left: 0; top: 0; height: 100%; transform: translateX(0); }
+            .chat-window-view { width: 100%; position: absolute; left: 0; top: 0; height: 100%; transform: translateX(100%); }
+            .main-container.viewing-chat .chat-list-view { transform: translateX(-100%); }
+            .main-container.viewing-chat .chat-window-view { transform: translateX(0); }
+        }
+    </style>
+</head>
+<body>
+
+    <header id="mainHeader">
+        <div class="header-info">
+            <h2>Mesh ID: <span id="myIdLabel" style="color:var(--accent);">...</span></h2>
+            <button class="action-btn" onclick="destroyAccountIdentity()">Delete Profile</button>
+        </div>
+        <div class="mode-container">
+            <button id="wifiModeBtn" class="toggle-btn" onclick="setHardwareMode('WIFI')">Wi-Fi Router</button>
+            <button id="bleModeBtn" class="toggle-btn" onclick="setHardwareMode('BLE')">Bluetooth</button>
+            <div id="netDot" class="status-dot"></div>
+        </div>
+    </header>
+
+    <div class="batch-action-bar" id="batchBar">
+        <div id="batchCountText" style="font-weight: bold;">0 items selected</div>
+        <div class="batch-btn-group">
+            <button class="batch-btn" onclick="executeBatchAction('COPY')">📋 Copy</button>
+            <button class="batch-btn" onclick="executeBatchAction('FORWARD')">➡️ Forward</button>
+            <button class="batch-btn" style="background:#ef4444;" onclick="executeBatchAction('DELETE')">🗑️ Delete</button>
+            <button class="batch-btn" class="cancel" onclick="exitBatchMode()">Exit</button>
+        </div>
+    </div>
+
+    <div class="main-container" id="appLayout">
+        <div class="chat-list-view">
+            <div class="section-header-row">
+                <div class="section-title">Public Forums</div>
+                <button class="global-del-btn" onclick="eraseGlobalChatPrompt()" title="Clear Global History">Clear 🗑️</button>
+            </div>
+            <ul class="user-list">
+                <li id="item-GLOBAL_PUBLIC" class="user-item selected" onclick="switchActiveChat('GLOBAL_PUBLIC')">
+                    <div style="font-size: 1.2rem;">🌐</div>
+                    <div class="chat-meta">
+                        <div class="chat-name">Global Public Square</div>
+                        <div class="chat-preview" id="preview-GLOBAL_PUBLIC">No messages yet</div>
+                    </div>
+                    <div class="chat-badge-area">
+                        <div class="unread-badge" id="badge-GLOBAL_PUBLIC" style="display:none;">0</div>
+                    </div>
+                </li>
+            </ul>
+            <div class="section-title">Direct Messages</div>
+            <ul class="user-list" id="peerList"></ul>
+        </div>
+
+        <div class="chat-window-view">
+            <div class="window-header">
+                <button class="back-btn" onclick="exitChatWindow()">← Back</button>
+                <div class="window-header-title" id="currentChatTitle">Global Public Square</div>
+            </div>
+            <div class="messages-container" id="chatWindow"></div>
+            <div class="input-bar">
+                <input type="text" id="messageIn" placeholder="Type a message..." onkeypress="if(event.key==='Enter') dispatchMessage()">
+                <button id="sendBtn" onclick="dispatchMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="custom-modal" id="deleteOptionsModal">
+        <div class="modal-card">
+            <div class="modal-title">Manage Peer Account</div>
+            <div class="modal-desc">Select how you want to remove data for target user <span id="modalTargetUserLabel" style="color:var(--accent); font-weight:bold;"></span>:</div>
+            <button class="modal-btn primary" onclick="confirmDeleteChatDataOnly()">Wipe Complete Chat History Only</button>
+            <button class="modal-btn secondary" onclick="confirmDeleteUserEntirely()">Delete User Completely From List</button>
+            <button class="modal-btn cancel" onclick="closeDeleteModal()">Cancel</button>
+        </div>
+    </div>
+
+    <script>
+        let currentMode = "WIFI"; 
+        let activeChat = "GLOBAL_PUBLIC";
+        let myUsername = "";
+        
+        let wsSocket = null;
+        let bleDevice = null;
+        let bleRxChar = null;
+        let bleTxChar = null;
+        let mobileHeartbeat = null;
+        let isReconnectingBLE = false;
+        
+        // Messaging State Engine Tracking Variables
+        let processedTokens = new Set();
+        let isBatchSelectionMode = false;
+        let selectedMessageIndexes = [];
+        let pressTimer = null;
+        let isLongPressActionTriggered = false;
+        let activeTargetModalUser = null;
+        let sendDebounceActive = false;
+
+        const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+        const BLE_RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+        const BLE_TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+        if(localStorage.getItem("mesh_hardware_mode")) {
+            currentMode = localStorage.getItem("mesh_hardware_mode");
+        }
+
+        if (!localStorage.getItem("mesh_node_username")) {
+            localStorage.setItem("mesh_node_username", "Peer-" + Math.floor(1000 + Math.random() * 9000));
+        }
+        myUsername = localStorage.getItem("mesh_node_username");
+        document.getElementById("myIdLabel").innerText = myUsername;
+
+        if(!localStorage.getItem("mesh_history")) {
+            localStorage.setItem("mesh_history", JSON.stringify({"GLOBAL_PUBLIC": []}));
+        }
+        if(!localStorage.getItem("mesh_unreads")) {
+            localStorage.setItem("mesh_unreads", JSON.stringify({}));
+        }
+        if(!localStorage.getItem("mesh_known_peers")) {
+            localStorage.setItem("mesh_known_peers", JSON.stringify([]));
+        }
+
+        function getHistory() { return JSON.parse(localStorage.getItem("mesh_history")); }
+        function saveHistory(data) { localStorage.setItem("mesh_history", JSON.stringify(data)); }
+        function getUnreads() { return JSON.parse(localStorage.getItem("mesh_unreads")); }
+        function saveUnreads(data) { localStorage.setItem("mesh_unreads", JSON.stringify(data)); }
+        function getKnownPeers() { return JSON.parse(localStorage.getItem("mesh_known_peers")); }
+        function saveKnownPeers(data) { localStorage.setItem("mesh_known_peers", JSON.stringify(data)); }
+
+        function initializeNetworkLink() {
+            disconnectAllDrivers();
+            updateModeButtonsUI();
+            if (currentMode === "WIFI") { connectViaWebSocket(); } 
+            else { connectViaWebBluetooth(); }
+        }
+
+        function disconnectAllDrivers() {
+            if(wsSocket) { wsSocket.close(); wsSocket = null; }
+            if(bleDevice && bleDevice.gatt.connected) { bleDevice.gatt.disconnect(); }
+            if(mobileHeartbeat) { clearInterval(mobileHeartbeat); mobileHeartbeat = null; }
+            setOnlineState(false);
+        }
+
+        function setHardwareMode(mode) {
+            localStorage.setItem("mesh_hardware_mode", mode);
+            currentMode = mode;
+            initializeNetworkLink();
+        }
+
+        function updateModeButtonsUI() {
+            document.getElementById("wifiModeBtn").className = (currentMode === "WIFI") ? "toggle-btn active" : "toggle-btn";
+            document.getElementById("bleModeBtn").className = (currentMode === "BLE") ? "toggle-btn active" : "toggle-btn";
+        }
+
+        function connectViaWebSocket() {
+            wsSocket = new WebSocket("ws://192.168.4.1:81");
+            wsSocket.onopen = () => {
+                setOnlineState(true);
+                transmitHardwarePacket({ type: "register", sender: myUsername });
+                if(mobileHeartbeat) clearInterval(mobileHeartbeat);
+                mobileHeartbeat = setInterval(() => {
+                    if(wsSocket && wsSocket.readyState === WebSocket.OPEN) wsSocket.send(JSON.stringify({type:"ping"}));
+                }, 2000);
+            };
+            wsSocket.onmessage = (e) => { if(!e.data.includes("pong")) processIncomingPacket(e.data); };
+            wsSocket.onclose = () => { setOnlineState(false); };
+        }
+
+        async function connectViaWebBluetooth(isAutoRetry = false) {
+            if(isReconnectingBLE) return;
+            try {
+                if (bleDevice && bleDevice.gatt.connected) {
+                    setOnlineState(true);
+                    return;
+                }
+                if (isAutoRetry && bleDevice) {
+                    isReconnectingBLE = true;
+                    const server = await bleDevice.gatt.connect();
+                    await setupBLECharacteristics(server);
+                    isReconnectingBLE = false;
+                    return;
+                }
+                if(isAutoRetry && !bleDevice) return;
+
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: "ESP32_Mesh_Node" }],
+                    optionalServices: [BLE_SERVICE_UUID]
+                });
+                bleDevice.addEventListener('gattserverdisconnected', onBLEDisconnectedEvent);
+                const server = await bleDevice.gatt.connect();
+                await setupBLECharacteristics(server);
+            } catch (err) { 
+                isReconnectingBLE = false;
+                setOnlineState(false); 
+            }
+        }
+
+        async function setupBLECharacteristics(server) {
+            const service = await server.getPrimaryService(BLE_SERVICE_UUID);
+            bleRxChar = await service.getCharacteristic(BLE_RX_UUID);
+            bleTxChar = await service.getCharacteristic(BLE_TX_UUID);
+            await bleTxChar.startNotifications();
+            bleTxChar.addEventListener('characteristicvaluechanged', (e) => {
+                let decoder = new TextDecoder();
+                processIncomingPacket(decoder.decode(e.target.value));
+            });
+            setOnlineState(true);
+            transmitHardwarePacket({ type: "register", sender: myUsername });
+        }
+
+        function onBLEDisconnectedEvent() {
+            setOnlineState(false);
+            setTimeout(() => { connectViaWebBluetooth(true); }, 3000);
+        }
+
+        function transmitHardwarePacket(jsonObj) {
+            const dataStr = JSON.stringify(jsonObj);
+            if (currentMode === "WIFI" && wsSocket && wsSocket.readyState === WebSocket.OPEN) {
+                wsSocket.send(dataStr);
+            } else if (currentMode === "BLE" && bleRxChar) {
+                let encoder = new TextEncoder();
+                bleRxChar.writeValue(encoder.encode(dataStr));
+            }
+        }
+
+        function processIncomingPacket(rawStr) {
+            try {
+                const packet = JSON.parse(rawStr);
+                
+                if (packet.type === "system_userlist") {
+                    updateRosterUI(packet.data);
+                    return;
+                }
+
+                // FIX: Verify unique packet tokens to eliminate double-rendering loops
+                let msgToken = packet.id || (packet.sender + "_" + packet.text + "_" + (packet.target || "public"));
+                if(processedTokens.has(msgToken)) return;
+                processedTokens.add(msgToken);
+                setTimeout(() => processedTokens.delete(msgToken), 4000);
+
+                if (packet.type === "public_msg") {
+                    logMessageStore("GLOBAL_PUBLIC", packet.sender, packet.text, packet.sender === myUsername ? "outgoing" : "global");
+                } 
+                else if (packet.type === "private_chat") {
+                    if(packet.target === myUsername || packet.sender === myUsername) {
+                        let roomKey = (packet.sender === myUsername) ? packet.target : packet.sender;
+                        logMessageStore(roomKey, packet.sender, packet.text, packet.sender === myUsername ? "outgoing" : "incoming");
+                    }
+                }
+            } catch(err) { console.warn(err); }
+        }
+
+        function logMessageStore(roomKey, sender, text, cssClass) {
+            let db = getHistory();
+            if(!db[roomKey]) db[roomKey] = [];
+            
+            let timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            db[roomKey].push({ sender: sender, text: text, style: cssClass, time: timeStr });
+            saveHistory(db);
+
+            // Dynamically index missing discovery peers if data comes out of structural order
+            if(roomKey !== "GLOBAL_PUBLIC" && sender !== myUsername) {
+                let known = getKnownPeers();
+                if(!known.includes(roomKey)) {
+                    known.push(roomKey);
+                    saveKnownPeers(known);
+                    rebuildRosterDOM();
+                }
+            }
+
+            if (activeChat !== roomKey) {
+                let unreads = getUnreads();
+                unreads[roomKey] = (unreads[roomKey] || 0) + 1;
+                saveUnreads(unreads);
+                flashUserCardNotification(roomKey);
+            }
+
+            refreshSidebarDisplays();
+            if(activeChat === roomKey) renderActiveConversation();
+        }
+
+        function updateRosterUI(activeNetworkUsers) {
+            let known = getKnownPeers();
+            let stateChanged = false;
+
+            activeNetworkUsers.forEach(user => {
+                if(user !== myUsername && !known.includes(user)) {
+                    known.push(user);
+                    stateChanged = true;
+                }
+            });
+
+            if(stateChanged || known.length >= 0) {
+                saveKnownPeers(known);
+                rebuildRosterDOM();
+            }
+        }
+
+        function rebuildRosterDOM() {
+            const container = document.getElementById("peerList");
+            container.innerHTML = "";
+            let known = getKnownPeers();
+
+            known.forEach(user => {
+                const isSelected = (activeChat === user) ? "selected" : "";
+                container.innerHTML += `
+                    <li id="item-${user}" class="user-item ${isSelected}" onclick="switchActiveChat('${user}')">
+                        <div style="font-size: 1.2rem;">👤</div>
+                        <div class="chat-meta">
+                            <div class="chat-name">${user}</div>
+                            <div class="chat-preview" id="preview-${user}">No messages</div>
+                        </div>
+                        <div class="chat-badge-area">
+                            <div class="unread-badge" id="badge-${user}" style="display:none;">0</div>
+                            <span class="del-chat-icon" onclick="openActionModal('${user}', event)">🗑️</span>
+                        </div>
+                    </li>`;
+            });
+            refreshSidebarDisplays();
+        }
+
+        function refreshSidebarDisplays() {
+            let db = getHistory();
+            let unreads = getUnreads();
+
+            let globalLogs = db["GLOBAL_PUBLIC"] || [];
+            if(globalLogs.length > 0) {
+                document.getElementById("preview-GLOBAL_PUBLIC").innerText = globalLogs[globalLogs.length-1].text;
+            } else {
+                document.getElementById("preview-GLOBAL_PUBLIC").innerText = "No messages yet";
+            }
+            if(unreads["GLOBAL_PUBLIC"]) {
+                document.getElementById("badge-GLOBAL_PUBLIC").style.display = "flex";
+                document.getElementById("badge-GLOBAL_PUBLIC").innerText = unreads["GLOBAL_PUBLIC"];
+            } else { document.getElementById("badge-GLOBAL_PUBLIC").style.display = "none"; }
+
+            Object.keys(db).forEach(room => {
+                if(room === "GLOBAL_PUBLIC") return;
+                let previewEl = document.getElementById(`preview-${room}`);
+                let badgeEl = document.getElementById(`badge-${room}`);
+                let logs = db[room] || [];
+                
+                if(previewEl && logs.length > 0) previewEl.innerText = logs[logs.length-1].text;
+                if(previewEl && logs.length === 0) previewEl.innerText = "No messages";
+                
+                if(badgeEl) {
+                    if(unreads[room]) {
+                        badgeEl.style.display = "flex";
+                        badgeEl.innerText = unreads[room];
+                    } else { badgeEl.style.display = "none"; }
+                }
+            });
+        }
+
+        function flashUserCardNotification(roomKey) {
+            let card = document.getElementById(`item-${roomKey}`);
+            if(card) {
+                card.classList.add("unread-flash");
+                setTimeout(() => card.classList.remove("unread-flash"), 800);
+            }
+        }
+
+        function switchActiveChat(target) {
+            if(isBatchSelectionMode) exitBatchMode();
+            activeChat = target;
+            
+            let unreads = getUnreads();
+            delete unreads[target];
+            saveUnreads(unreads);
+
+            document.querySelectorAll(".user-item").forEach(el => el.classList.remove("selected"));
+            let activeCard = document.getElementById(`item-${target}`);
+            if(activeCard) activeCard.classList.add("selected");
+
+            document.getElementById("currentChatTitle").innerText = target === "GLOBAL_PUBLIC" ? "Global Public Square" : target;
+            document.getElementById("appLayout").classList.add("viewing-chat");
+
+            refreshSidebarDisplays();
+            renderActiveConversation();
+        }
+
+        function exitChatWindow() {
+            if(isBatchSelectionMode) exitBatchMode();
+            document.getElementById("appLayout").classList.remove("viewing-chat");
+        }
+
+        function renderActiveConversation() {
+            const win = document.getElementById("chatWindow");
+            win.innerHTML = "";
+            let db = getHistory();
+            let activeLogs = db[activeChat] || [];
+
+            activeLogs.forEach((m, index) => {
+                let div = document.createElement("div");
+                
+                let isSelected = selectedMessageIndexes.includes(index);
+                div.className = `msg ${m.style} ${isSelected ? 'batch-selected' : ''}`;
+                div.innerHTML = `<strong>${m.sender}:</strong> <span>${m.text}</span><div class="msg-time">${m.time || ''}</div>`;
+                
+                // Unified Event Handlers supporting desktop mouse clicks & mobile press events
+                div.addEventListener("touchstart", (e) => startPressTimer(index, e), {passive: true});
+                div.addEventListener("touchend", clearPressTimer);
+                div.addEventListener("mousedown", (e) => { if(e.button === 0) startPressTimer(index, e); });
+                div.addEventListener("mouseup", clearPressTimer);
+                div.addEventListener("click", (e) => handleMessageClickEvent(index, e));
+
+                win.appendChild(div);
+            });
+            setTimeout(() => { win.scrollTop = win.scrollHeight; }, 30);
+        }
+
+        function dispatchMessage() {
+            // FIX: Fast debouncer stops rapid double click send calls completely
+            if(sendDebounceActive) return;
+            
+            const field = document.getElementById("messageIn");
+            const txt = field.value.trim();
+            if(!txt) return;
+
+            sendDebounceActive = true;
+            setTimeout(() => sendDebounceActive = false, 350);
+
+            let uniquePacketId = myUsername + "_" + Date.now() + "_" + Math.floor(Math.random()*1000);
+            processedTokens.add(uniquePacketId);
+
+            let payload = {};
+            if(activeChat === "GLOBAL_PUBLIC") {
+                payload = { type: "public_msg", id: uniquePacketId, sender: myUsername, text: txt };
+                logMessageStore("GLOBAL_PUBLIC", myUsername, txt, "outgoing");
+            } else {
+                payload = { type: "private_chat", id: uniquePacketId, sender: myUsername, target: activeChat, text: txt };
+                logMessageStore(activeChat, myUsername, txt, "outgoing");
+            }
+
+            transmitHardwarePacket(payload);
+            field.value = "";
+            field.focus();
+        }
+
+        // --- Batch Mode Multi-Selection Logic Engine ---
+        function startPressTimer(idx, e) {
+            isLongPressActionTriggered = false;
+            if(pressTimer) clearTimeout(pressTimer);
+            pressTimer = setTimeout(() => {
+                isLongPressActionTriggered = true;
+                enterBatchSelectionMode(idx);
+            }, 700);
+        }
+
+        function clearPressTimer() { if(pressTimer) clearTimeout(pressTimer); }
+
+        function handleMessageClickEvent(idx, e) {
+            if (isLongPressActionTriggered) {
+                isLongPressActionTriggered = false;
+                return;
+            }
+            if (isBatchSelectionMode) {
+                toggleMessageSelection(idx);
+            }
+        }
+
+        function enterBatchSelectionMode(initialIdx) {
+            isBatchSelectionMode = true;
+            selectedMessageIndexes = [initialIdx];
+            document.getElementById("batchBar").style.display = "flex";
+            updateBatchSelectionUI();
+        }
+
+        function toggleMessageSelection(idx) {
+            let location = selectedMessageIndexes.indexOf(idx);
+            if(location > -1) {
+                selectedMessageIndexes.splice(location, 1);
+            } else {
+                selectedMessageIndexes.push(idx);
+            }
+            if(selectedMessageIndexes.length === 0) {
+                exitBatchMode();
+            } else {
+                updateBatchSelectionUI();
+            }
+        }
+
+        function updateBatchSelectionUI() {
+            document.getElementById("batchCountText").innerText = `${selectedMessageIndexes.length} messages selected`;
+            renderActiveConversation();
+        }
+
+        function exitBatchMode() {
+            isBatchSelectionMode = false;
+            selectedMessageIndexes = [];
+            document.getElementById("batchBar").style.display = "none";
+            renderActiveConversation();
+        }
+
+        function executeBatchAction(action) {
+            let db = getHistory();
+            let roomLogs = db[activeChat] || [];
+            
+            // Sort selection track indices descending to safely strip items without shifting remaining indexes
+            selectedMessageIndexes.sort((a,b) => b - a);
+
+            if (action === 'COPY') {
+                let pooledText = [];
+                // Process in chronological array configuration index layouts
+                [...selectedMessageIndexes].reverse().forEach(idx => pooledText.push(`[${roomLogs[idx].sender}]: ${roomLogs[idx].text}`));
+                navigator.clipboard.writeText(pooledText.join("\n"));
+                alert("Selected messages copied to clipboard!");
+            } 
+            else if (action === 'FORWARD') {
+                let targetPeer = prompt("Enter Target Profile name to forward selected text blocks:");
+                if(targetPeer) {
+                    let uniquePacketId = myUsername + "_" + Date.now();
+                    [...selectedMessageIndexes].reverse().forEach(idx => {
+                        transmitHardwarePacket({ type: "private_chat", id: uniquePacketId, sender: myUsername, target: targetPeer, text: roomLogs[idx].text });
+                        logMessageStore(targetPeer, myUsername, roomLogs[idx].text, "outgoing");
+                    });
+                }
+            } 
+            else if (action === 'DELETE') {
+                selectedMessageIndexes.forEach(idx => roomLogs.splice(idx, 1));
+                db[activeChat] = roomLogs;
+                saveHistory(db);
+                refreshSidebarDisplays();
+            }
+            exitBatchMode();
+        }
+
+        // --- Advanced Card Options Popups (Modal Controls) ---
+        function openActionModal(targetUser, event) {
+            if(event) event.stopPropagation();
+            activeTargetModalUser = targetUser;
+            document.getElementById("modalTargetUserLabel").innerText = targetUser;
+            document.getElementById("deleteOptionsModal").style.display = "flex";
+        }
+
+        function closeDeleteModal() {
+            document.getElementById("deleteOptionsModal").style.display = "none";
+            activeTargetModalUser = null;
+        }
+
+        function confirmDeleteChatDataOnly() {
+            let db = getHistory();
+            db[activeTargetModalUser] = [];
+            saveHistory(db);
+            
+            let unreads = getUnreads();
+            delete unreads[activeTargetModalUser];
+            saveUnreads(unreads);
+
+            alert(`Success: Chat message data for "${activeTargetModalUser}" was completely wiped from storage.`);
+            closeDeleteModal();
+            if(activeChat === activeTargetModalUser) renderActiveConversation();
+            refreshSidebarDisplays();
+        }
+
+        function confirmDeleteUserEntirely() {
+            let db = getHistory();
+            delete db[activeTargetModalUser];
+            saveHistory(db);
+
+            let unreads = getUnreads();
+            delete unreads[activeTargetModalUser];
+            saveUnreads(unreads);
+
+            let known = getKnownPeers();
+            let index = known.indexOf(activeTargetModalUser);
+            if (index > -1) known.splice(index, 1);
+            saveKnownPeers(known);
+
+            alert(`Success: Peer Account "${activeTargetModalUser}" and its associated records have been completely dropped.`);
+            closeDeleteModal();
+            
+            if(activeChat === activeTargetModalUser) {
+                switchActiveChat("GLOBAL_PUBLIC");
+            } else {
+                rebuildRosterDOM();
+            }
+        }
+
+        function eraseGlobalChatPrompt() {
+            if(!confirm("Wipe all historical chat message data for the Global Public Square room?")) return;
+            let db = getHistory();
+            db["GLOBAL_PUBLIC"] = [];
+            saveHistory(db);
+            alert("Global room messages successfully cleared.");
+            if(activeChat === "GLOBAL_PUBLIC") renderActiveConversation();
+            refreshSidebarDisplays();
+        }
+
+        function destroyAccountIdentity() {
+            if(!confirm("Erase profile identity registry?")) return;
+            localStorage.clear();
+            window.location.reload();
+        }
+
+        function setOnlineState(isOnline) {
+            document.getElementById("netDot").className = isOnline ? "status-dot online" : "status-dot";
+        }
+
+        window.onload = () => {
+            rebuildRosterDOM();
+            initializeNetworkLink();
+            renderActiveConversation();
+            
+            setInterval(() => {
+                if (currentMode === "WIFI" && (!wsSocket || wsSocket.readyState === WebSocket.CLOSED)) {
+                    connectViaWebSocket();
+                } else if(currentMode === "BLE" && bleDevice && !bleDevice.gatt.connected && !isReconnectingBLE) {
+                    connectViaWebBluetooth(true);
+                }
+            }, 4000);
+        };
+    </script>
+</body>
+</html>
